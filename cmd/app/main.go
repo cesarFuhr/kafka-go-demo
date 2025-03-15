@@ -9,8 +9,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/cesarFuhr/kafka-go-demo/cmd/app/consumer"
-	"github.com/cesarFuhr/kafka-go-demo/cmd/app/producer"
+	"github.com/cesarFuhr/kafka-go-demo/cmd/app/kafka/consumer"
+	"github.com/cesarFuhr/kafka-go-demo/cmd/app/kafka/producer"
 )
 
 func main() {
@@ -40,8 +40,10 @@ func run(args []string) error {
 	switch args[1] {
 	case producerMode:
 		runPublisher(ctx)
-	case consumerMode:
-		runConsumer(ctx)
+	case mainConsumerMode:
+		runMainConsumerGroup(ctx)
+	case retryConsumerMode:
+		runRetryConsumerGroup(ctx)
 	default:
 		return fmt.Errorf("nothing to do here, invalid operation: %v", args)
 	}
@@ -60,11 +62,24 @@ func runPublisher(ctx context.Context) {
 	log.Println("Stopping the producer...")
 }
 
-const consumerMode = "consumer"
+const mainConsumerMode = "consumer"
 
-func runConsumer(ctx context.Context) {
+func runMainConsumerGroup(ctx context.Context) {
 	log.Println("Starting the consumer...")
-	err := consumer.StartConsumers(ctx)
+	cfg := consumer.LoadCfg("MAIN")
+	err := consumer.StartConsumerGroup(ctx, cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Stopping the consumer...")
+}
+
+const retryConsumerMode = "retrier"
+
+func runRetryConsumerGroup(ctx context.Context) {
+	log.Println("Starting the consumer...")
+	cfg := consumer.LoadCfg("RETRY")
+	err := consumer.StartConsumerGroup(ctx, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
