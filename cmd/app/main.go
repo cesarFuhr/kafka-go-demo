@@ -53,7 +53,10 @@ const producerMode = "producer"
 
 func runPublisher(ctx context.Context) {
 	log.Println("Starting the producer...")
-	producer.NewProducer(ctx)
+	err := producer.SartProducers(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Println("Stopping the producer...")
 }
 
@@ -61,6 +64,9 @@ const consumerMode = "consumer"
 
 func runConsumer(ctx context.Context) {
 	log.Println("Starting the consumer...")
-	consumer.NewConsumer(ctx)
+	err := consumer.StartConsumers(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Println("Stopping the consumer...")
 }
