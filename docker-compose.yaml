@@ -5,13 +5,16 @@ services:
       target: consumer
     networks:
       - common-net
-    depends_on:
-      - kafka
     environment:
       - MAIN_CONSUMER_GROUP_SIZE=${MAIN_CONSUMER_GROUP_SIZE}
       - MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS}
       - MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS}
       - MAIN_CONSUMER_FAIL_PERCENTAGE=${MAIN_CONSUMER_FAIL_PERCENTAGE}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
 
   retrier:
     build:
@@ -19,14 +22,17 @@ services:
       target: retrier
     networks:
       - common-net
-    depends_on:
-      - kafka
     environment:
       - RETRY_CONSUMER_MAIN_TOPIC=retry-topic
       - RETRY_CONSUMER_GROUP_SIZE=${RETRY_CONSUMER_GROUP_SIZE}
       - RETRY_CONSUMER_MAX_WAIT_IN_MILLISECONDS=${RETRY_CONSUMER_MAX_WAIT_IN_MILLISECONDS}
       - RETRY_CONSUMER_MAX_WORK_IN_MILLISECONDS=${RETRY_CONSUMER_MAX_WORK_IN_MILLISECONDS}
       - RETRY_CONSUMER_FAIL_PERCENTAGE=${RETRY_CONSUMER_FAIL_PERCENTAGE}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
 
   producer:
     build:
@@ -37,6 +43,33 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+
+  retrier_producer:
+    build:
+      context: .
+      target: retrier_producer
+    networks:
+      - common-net
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:14
+    networks:
+      - common-net
+    environment:
+      - POSTGRES_PASSWORD=root
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username", "postgres"]
+      interval: 1s
+      retries: 120
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
 
   kafka:
     image: 'bitnami/kafka:3.9'
@@ -77,3 +110,4 @@ networks:
 
 volumes:
   kafka_data:
+  pg_data:

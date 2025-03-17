@@ -2,7 +2,7 @@ setup:
 	docker compose up -d kafka
 
 up:
-	docker compose up --build -d producer consumer retrier
+	docker compose up --force-recreate --build -d producer consumer retrier retrier_producer
 
 down:
 	docker compose down

@@ -19,3 +19,7 @@ ENTRYPOINT [ "/bin/main", "consumer" ]
 # Retrier container.
 FROM base AS retrier
 ENTRYPOINT [ "/bin/main", "retrier" ]
+
+# Retrier producer container.
+FROM base AS retrier_producer
+ENTRYPOINT [ "/bin/main", "retrier_producer" ]

@@ -13,6 +13,10 @@ import (
 	"github.com/cesarFuhr/kafka-go-demo/cmd/app/kafka/producer"
 )
 
+// TODO:
+// - Mermaid chart with the consumer and retriers flows.
+// - Figure out dead lettering.
+
 func main() {
 	if err := run(os.Args); err != nil {
 		log.Fatal(err)
@@ -44,6 +48,8 @@ func run(args []string) error {
 		runMainConsumerGroup(ctx)
 	case retryConsumerMode:
 		runRetryConsumerGroup(ctx)
+	case retryProducerMode:
+		runRetryProducer(ctx)
 	default:
 		return fmt.Errorf("nothing to do here, invalid operation: %v", args)
 	}
@@ -55,7 +61,7 @@ const producerMode = "producer"
 
 func runPublisher(ctx context.Context) {
 	log.Println("Starting the producer...")
-	err := producer.SartProducers(ctx)
+	err := producer.StartProducer(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,7 +73,7 @@ const mainConsumerMode = "consumer"
 func runMainConsumerGroup(ctx context.Context) {
 	log.Println("Starting the consumer...")
 	cfg := consumer.LoadCfg("MAIN")
-	err := consumer.StartConsumerGroup(ctx, cfg)
+	err := consumer.StartConsumerGroup(ctx, cfg, consumer.MainWork)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,9 +85,25 @@ const retryConsumerMode = "retrier"
 func runRetryConsumerGroup(ctx context.Context) {
 	log.Println("Starting the consumer...")
 	cfg := consumer.LoadCfg("RETRY")
-	err := consumer.StartConsumerGroup(ctx, cfg)
+
+	retryWork, close := consumer.NewRetryWork(ctx)
+	defer close()
+
+	err := consumer.StartConsumerGroup(ctx, cfg, retryWork)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Stopping the consumer...")
+}
+
+const retryProducerMode = "retrier_producer"
+
+func runRetryProducer(ctx context.Context) {
+	log.Println("Starting the producer...")
+
+	err := producer.StartRetryProducer(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Stopping the producer...")
 }

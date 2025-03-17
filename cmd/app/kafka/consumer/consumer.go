@@ -3,9 +3,9 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
-	"math/rand/v2"
 	"os"
 	"strconv"
 	"sync"
@@ -15,7 +15,7 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-func StartConsumerGroup(ctx context.Context, cfg Cfg) error {
+func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.Context, Cfg, message.Message[V]) error) error {
 	log.Printf("Consumer Group Config: %+v", cfg)
 
 	dialer := kafka.Dialer{
@@ -71,22 +71,33 @@ func StartConsumerGroup(ctx context.Context, cfg Cfg) error {
 						log.Println(fmt.Errorf("consumer %d\t| error reading message %w: ", i, err))
 					}
 
-					var m message.Message
+					var m message.Message[V]
 					if err := json.Unmarshal(kafkaMessage.Value, &m); err != nil {
 						return
 					}
 
-					// Pretend we are doing someting.
-					time.Sleep(time.Duration(rand.IntN(cfg.MaxWorkInMilliseconds)) * time.Millisecond)
+					log.Printf("consumer %02d | partition: %02d | offset: %04d | received_message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, m)
 
-					if rand.IntN(100) < cfg.FailPercentage {
-						m := m
-						m.Attempts += 1
+					//Do the work:
+					if err := work(ctx, cfg, m); err != nil {
+						if !errors.Is(err, ErrShouldRetry) {
+							log.Printf("doing work: %w", err)
+							continue
+						}
 
 						// Write to the retry topic if failed.
 						log.Printf("consumer %02d | partition: %02d | offset: %04d | failed_message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, m)
 
-						bts, err := json.Marshal(m)
+						retryMessage := message.Message[message.Retry]{
+							Timestamp: m.Timestamp,
+							Attempts:  m.Attempts,
+							Value: message.Retry{
+								DestinationTopic: cfg.MainTopic,
+								BackoffDeadline:  time.Now().Add(10 * time.Second).Unix(),
+								Message:          m,
+							},
+						}
+						bts, err := json.Marshal(retryMessage)
 						if err != nil {
 							log.Printf("writing messages: %w", err)
 							continue
@@ -97,10 +108,8 @@ func StartConsumerGroup(ctx context.Context, cfg Cfg) error {
 						if err != nil {
 							log.Printf("consumer %02d | error writing message to retry: %d : %+v", i, kafkaMessage.Offset, m)
 						}
-						log.Println("sent to retry: ", kafkaMessage.Offset)
+						log.Println("sent to retry: ", kafkaMessage.Offset, "|", string(bts))
 					}
-
-					log.Printf("consumer %02d | partition: %02d | offset: %04d | message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, m)
 
 					if err := reader.CommitMessages(ctx, kafkaMessage); err != nil {
 						log.Printf("consumer %02d | error commiting message: %d : %+v", i, kafkaMessage.Offset, m)
@@ -115,6 +124,8 @@ func StartConsumerGroup(ctx context.Context, cfg Cfg) error {
 
 	return nil
 }
+
+var ErrShouldRetry = errors.New("should retry")
 
 type Cfg struct {
 	MainTopic             string
