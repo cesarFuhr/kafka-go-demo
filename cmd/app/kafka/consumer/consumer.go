@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -71,8 +72,22 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 						log.Println(fmt.Errorf("consumer %d\t| error reading message %w: ", i, err))
 					}
 
+					// Message routing.
+					headers := message.NewHeaders(kafkaMessage.Headers)
+					if len(headers.Audience) > 0 && !slices.Contains(headers.Audience, cfg.ConsumerGroupName) {
+						log.Printf("consumer %02d | partition: %02d | offset: %04d | ignored_message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, string(kafkaMessage.Value))
+
+						// Commit it and move on.
+						if err := reader.CommitMessages(ctx, kafkaMessage); err != nil {
+							log.Printf("consumer %02d | error commiting message: %d", i, kafkaMessage.Offset)
+							continue
+						}
+						continue
+					}
+
 					var m message.Message[V]
 					if err := json.Unmarshal(kafkaMessage.Value, &m); err != nil {
+						log.Printf("consumer %02d | partition: %02d | offset: %04d | unmarshal_error: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, string(kafkaMessage.Value))
 						return
 					}
 
@@ -93,6 +108,7 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 							Attempts:  m.Attempts,
 							Value: message.Retry{
 								DestinationTopic: cfg.MainTopic,
+								Audience:         []string{cfg.ConsumerGroupName},
 								BackoffDeadline:  time.Now().Add(10 * time.Second).Unix(),
 								Message:          m,
 							},
@@ -128,6 +144,7 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 var ErrShouldRetry = errors.New("should retry")
 
 type Cfg struct {
+	ConsumerGroupName     string
 	MainTopic             string
 	RetryTopic            string
 	GroupSize             int
@@ -138,6 +155,7 @@ type Cfg struct {
 
 func LoadCfg(prefix string) Cfg {
 	c := Cfg{
+		ConsumerGroupName:     readStringEnv("main-group", prefix+"_CONSUMER_GROUP_NAME"),
 		MainTopic:             readStringEnv("my-topic", prefix+"_CONSUMER_MAIN_TOPIC"),
 		RetryTopic:            readStringEnv("retry-topic", prefix+"_CONSUMER_RETRY_TOPIC"),
 		GroupSize:             readIntEnv(10, prefix+"_CONSUMER_MAIN_GROUP_SIZE"),

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cesarFuhr/kafka-go-demo/cmd/app/kafka/message"
 	_ "github.com/glebarez/go-sqlite"
+	"github.com/lib/pq"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -128,6 +129,7 @@ func StartRetryProducer(ctx context.Context) error {
           r.retry_id,
           r.backoff_deadline,
           r.destination_topic,
+          r.audience,
           r.message
         FROM retries r
         WHERE
@@ -145,13 +147,14 @@ func StartRetryProducer(ctx context.Context) error {
 					RetryID          int             `db:"retry_id"`
 					BackoffDeadline  int             `db:"backoff_deadline"`
 					DestinationTopic string          `db:"destination_topic"`
+					Audience         pq.StringArray  `db:"audience"`
 					Message          json.RawMessage `db:"message"`
 				}
 
 				retries := make([]dbRetry, 0, 100)
 				for rows.Next() {
 					var r dbRetry
-					err := rows.Scan(&r.RetryID, &r.BackoffDeadline, &r.DestinationTopic, &r.Message)
+					err := rows.Scan(&r.RetryID, &r.BackoffDeadline, &r.DestinationTopic, &r.Audience, &r.Message)
 					if err != nil {
 						log.Println("failed to scan: ", err)
 						return
@@ -198,15 +201,19 @@ func StartRetryProducer(ctx context.Context) error {
 						return
 					}
 
-					err = writer.WriteMessages(ctx, kafka.Message{
+					kafkaMessage := kafka.Message{
+						Headers: []kafka.Header{{
+							Key: "audience", Value: []byte(strings.Join(r.Audience, ",")),
+						}},
 						Value: bts,
-					})
+					}
+					err = writer.WriteMessages(ctx, kafkaMessage)
 					if err != nil {
 						log.Println("writing messages: %w", err)
 						return
 					}
 
-					log.Printf("sent: destination: %s | retry: %v | message: %+v", r.DestinationTopic, r.RetryID, string(bts))
+					log.Printf("sent: destination: %s | retry: %v | audience: %v | message: %+v", r.DestinationTopic, r.RetryID, string(kafkaMessage.Headers[0].Value), string(bts))
 					retryIDs = append(retryIDs, fmt.Sprint(r.RetryID))
 				}
 

@@ -9,7 +9,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/cesarFuhr/kafka-go-demo/cmd/app/kafka/message"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.Message[message.Retry]) error, close func() error) {
@@ -37,6 +37,7 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
     delivered_at      INT,
     backoff_deadline  INT,
     destination_topic TEXT,
+    audience          VARCHAR(255)[],
     message           JSONB
   );
   `
@@ -55,11 +56,13 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
     INSERT INTO retries (
       backoff_deadline,
       destination_topic,
+      audience,
       message
     ) VALUES (
       $1,
       $2,
-      $3
+      $3,
+      $4
     );
     `
 
@@ -68,7 +71,9 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
 			panic(err)
 		}
 
-		res, err := db.ExecContext(ctx, insertQuery, m.Value.BackoffDeadline, m.Value.DestinationTopic, messageBytes)
+		audience := pq.StringArray(m.Value.Audience)
+
+		res, err := db.ExecContext(ctx, insertQuery, m.Value.BackoffDeadline, m.Value.DestinationTopic, audience, messageBytes)
 		if err != nil {
 			panic(err)
 		}
