@@ -56,7 +56,7 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 
 			reader := kafka.NewReader(kafka.ReaderConfig{
 				Brokers:     []string{"kafka:9092"},
-				GroupID:     "onlygroup",
+				GroupID:     cfg.ConsumerGroupName,
 				GroupTopics: []string{cfg.MainTopic},
 				MaxWait:     time.Millisecond * 500,
 				Dialer:      &dialer,
