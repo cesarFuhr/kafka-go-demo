@@ -34,6 +34,10 @@ func StartProducer(ctx context.Context) error {
 		Topic:             topic,
 		NumPartitions:     10,
 		ReplicationFactor: 1,
+	}, kafka.TopicConfig{
+		Topic:             "retries_" + topic,
+		NumPartitions:     10,
+		ReplicationFactor: 1,
 	}); err != nil {
 		return fmt.Errorf("creating topic: %w", err)
 	}

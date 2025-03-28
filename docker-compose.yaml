@@ -17,6 +17,26 @@ services:
       db:
         condition: service_healthy
 
+
+  retry_consumer_1:
+    build:
+      context: .
+      target: consumer
+    networks:
+      - common-net
+    environment:
+      - MAIN_CONSUMER_GROUP_NAME=first_consumer_group
+      - MAIN_CONSUMER_MAIN_TOPIC=retries_my-topic
+      - MAIN_CONSUMER_GROUP_SIZE=${MAIN_CONSUMER_GROUP_SIZE}
+      - MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS}
+      - MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS}
+      - MAIN_CONSUMER_FAIL_PERCENTAGE=${MAIN_CONSUMER_FAIL_PERCENTAGE}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
   consumer_2:
     build:
       context: .
@@ -25,6 +45,25 @@ services:
       - common-net
     environment:
       - MAIN_CONSUMER_GROUP_NAME=second_consumer_group
+      - MAIN_CONSUMER_GROUP_SIZE=${MAIN_CONSUMER_GROUP_SIZE}
+      - MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS}
+      - MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS}
+      - MAIN_CONSUMER_FAIL_PERCENTAGE=${MAIN_CONSUMER_FAIL_PERCENTAGE}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  retry_consumer_2:
+    build:
+      context: .
+      target: consumer
+    networks:
+      - common-net
+    environment:
+      - MAIN_CONSUMER_GROUP_NAME=second_consumer_group
+      - MAIN_CONSUMER_MAIN_TOPIC=retries_my-topic
       - MAIN_CONSUMER_GROUP_SIZE=${MAIN_CONSUMER_GROUP_SIZE}
       - MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WAIT_IN_MILLISECONDS}
       - MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS=${MAIN_CONSUMER_MAX_WORK_IN_MILLISECONDS}

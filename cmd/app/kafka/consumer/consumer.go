@@ -107,7 +107,7 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 							Timestamp: m.Timestamp,
 							Attempts:  m.Attempts,
 							Value: message.Retry{
-								DestinationTopic: cfg.MainTopic,
+								DestinationTopic: "retries_" + cfg.MainTopic,
 								Audience:         []string{cfg.ConsumerGroupName},
 								BackoffDeadline:  time.Now().Add(10 * time.Second).Unix(),
 								Message:          m,
