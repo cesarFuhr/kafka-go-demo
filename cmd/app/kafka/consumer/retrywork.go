@@ -28,9 +28,6 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
 		panic(err)
 	}
 
-	// TODO:
-	// Audience column/lkp to controll the audience
-	// field when retrying.
 	createQuery := `
   CREATE TABLE IF NOT EXISTS retries (
     retry_id          SERIAL PRIMARY KEY,
@@ -38,6 +35,8 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
     backoff_deadline  INT,
     destination_topic TEXT,
     audience          VARCHAR(255)[],
+    attempts          INT,
+    max_attempts      INT,
     message           JSONB
   );
   `
@@ -57,12 +56,16 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
       backoff_deadline,
       destination_topic,
       audience,
+      attempts,
+      max_attempts,
       message
     ) VALUES (
       $1,
       $2,
       $3,
-      $4
+      $4,
+      $5,
+      $6
     );
     `
 
@@ -73,7 +76,7 @@ func NewRetryWork(ctx context.Context) (work func(context.Context, Cfg, message.
 
 		audience := pq.StringArray(m.Value.Audience)
 
-		res, err := db.ExecContext(ctx, insertQuery, m.Value.BackoffDeadline, m.Value.DestinationTopic, audience, messageBytes)
+		res, err := db.ExecContext(ctx, insertQuery, m.Value.BackoffDeadline, m.Value.DestinationTopic, audience, m.Value.Attempts, m.Value.MaxAttempts, messageBytes)
 		if err != nil {
 			panic(err)
 		}

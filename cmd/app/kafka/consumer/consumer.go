@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,13 +55,14 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 		go func(i int) {
 			defer wg.Done()
 
-			reader := kafka.NewReader(kafka.ReaderConfig{
-				Brokers:     []string{"kafka:9092"},
-				GroupID:     cfg.ConsumerGroupName,
-				GroupTopics: []string{cfg.MainTopic},
-				MaxWait:     time.Millisecond * 500,
-				Dialer:      &dialer,
-			})
+			readerConfig := kafka.ReaderConfig{
+				Brokers: []string{"kafka:9092"},
+				GroupID: cfg.ConsumerGroupName,
+				Topic:   cfg.MainTopic,
+				MaxWait: time.Millisecond * 500,
+				Dialer:  &dialer,
+			}
+			reader := kafka.NewReader(readerConfig)
 
 			for {
 				select {
@@ -75,7 +77,7 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 					// Message routing.
 					headers := message.NewHeaders(kafkaMessage.Headers)
 					if len(headers.Audience) > 0 && !slices.Contains(headers.Audience, cfg.ConsumerGroupName) {
-						log.Printf("consumer %02d | partition: %02d | offset: %04d | ignored_message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, string(kafkaMessage.Value))
+						log.Printf("consumer %02d | topic: %s | partition: %02d | offset: %04d | ignored_message:  %+v\n", i, kafkaMessage.Topic, kafkaMessage.Partition, kafkaMessage.Offset, string(kafkaMessage.Value))
 
 						// Commit it and move on.
 						if err := reader.CommitMessages(ctx, kafkaMessage); err != nil {
@@ -87,35 +89,40 @@ func StartConsumerGroup[V any](ctx context.Context, cfg Cfg, work func(context.C
 
 					var m message.Message[V]
 					if err := json.Unmarshal(kafkaMessage.Value, &m); err != nil {
-						log.Printf("consumer %02d | partition: %02d | offset: %04d | unmarshal_error: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, string(kafkaMessage.Value))
+						log.Printf("consumer %02d | topic: %s | partition: %02d | offset: %04d | unmarshal_error: %+v\n", i, kafkaMessage.Topic, kafkaMessage.Partition, kafkaMessage.Offset, string(kafkaMessage.Value))
 						return
 					}
 
-					log.Printf("consumer %02d | partition: %02d | offset: %04d | received_message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, m)
+					log.Printf("consumer %02d | topic: %s | partition: %02d | offset: %04d | received_message: %+v\n", i, kafkaMessage.Topic, kafkaMessage.Partition, kafkaMessage.Offset, m)
 
 					//Do the work:
 					if err := work(ctx, cfg, m); err != nil {
 						if !errors.Is(err, ErrShouldRetry) {
-							log.Printf("doing work: %w", err)
+							log.Printf("doing work: %v", err)
 							continue
 						}
 
 						// Write to the retry topic if failed.
-						log.Printf("consumer %02d | partition: %02d | offset: %04d | failed_message: %+v\n", i, kafkaMessage.Partition, kafkaMessage.Offset, m)
+						log.Printf("consumer %02d | topic: %s | partition: %02d | offset: %04d | failed_message: %+v\n", i, kafkaMessage.Topic, kafkaMessage.Partition, kafkaMessage.Offset, m)
 
+						destTopic := cfg.MainTopic
+						if !strings.HasPrefix(cfg.MainTopic, "retries_") {
+							destTopic = "retries_" + cfg.MainTopic
+						}
 						retryMessage := message.Message[message.Retry]{
 							Timestamp: m.Timestamp,
-							Attempts:  m.Attempts,
 							Value: message.Retry{
-								DestinationTopic: "retries_" + cfg.MainTopic,
+								DestinationTopic: destTopic,
 								Audience:         []string{cfg.ConsumerGroupName},
 								BackoffDeadline:  time.Now().Add(10 * time.Second).Unix(),
 								Message:          m,
+								Attempts:         byte(headers.Attempts + 1),
+								MaxAttempts:      3,
 							},
 						}
 						bts, err := json.Marshal(retryMessage)
 						if err != nil {
-							log.Printf("writing messages: %w", err)
+							log.Printf("writing messages: %v", err)
 							continue
 						}
 						err = writer.WriteMessages(ctx, kafka.Message{

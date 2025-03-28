@@ -61,10 +61,8 @@ func StartProducer(ctx context.Context) error {
 		case <-ticker.C:
 			now := time.Now()
 			message := message.Message[uint]{
-				Timestamp:   now.Unix(),
-				Attempts:    0,
-				MaxAttempts: 3,
-				Value:       counter,
+				Timestamp: now.Unix(),
+				Value:     counter,
 			}
 			bts, err := json.Marshal(message)
 			if err != nil {
@@ -134,11 +132,14 @@ func StartRetryProducer(ctx context.Context) error {
           r.backoff_deadline,
           r.destination_topic,
           r.audience,
+          r.attempts,
+          r.max_attempts,
           r.message
         FROM retries r
         WHERE
           r.backoff_deadline < $1
           AND r.delivered_at IS NULL 
+          AND r.attempts < r.max_attempts
         ORDER BY r.destination_topic ASC
         LIMIT 100;`
 				rows, err := db.QueryContext(ctx, insertQuery, now.Unix())
@@ -152,13 +153,15 @@ func StartRetryProducer(ctx context.Context) error {
 					BackoffDeadline  int             `db:"backoff_deadline"`
 					DestinationTopic string          `db:"destination_topic"`
 					Audience         pq.StringArray  `db:"audience"`
+					Attempts         int             `db:"attempts"`
+					MaxAttempts      int             `db:"max_attempts"`
 					Message          json.RawMessage `db:"message"`
 				}
 
 				retries := make([]dbRetry, 0, 100)
 				for rows.Next() {
 					var r dbRetry
-					err := rows.Scan(&r.RetryID, &r.BackoffDeadline, &r.DestinationTopic, &r.Audience, &r.Message)
+					err := rows.Scan(&r.RetryID, &r.BackoffDeadline, &r.DestinationTopic, &r.Audience, &r.Attempts, &r.MaxAttempts, &r.Message)
 					if err != nil {
 						log.Println("failed to scan: ", err)
 						return
@@ -169,7 +172,7 @@ func StartRetryProducer(ctx context.Context) error {
 
 				if len(retries) == 0 {
 					// Nothing to do here.
-					log.Println("Nothing do do this time.")
+					log.Println("Nothing to do this time.")
 					return
 				}
 
@@ -182,7 +185,7 @@ func StartRetryProducer(ctx context.Context) error {
 					if !ok {
 						// Build the destination topic writer.
 						writer = kafka.NewWriter(kafka.WriterConfig{
-							Topic:     topic,
+							Topic:     r.DestinationTopic,
 							Brokers:   []string{"kafka:9092"},
 							Dialer:    &dialer,
 							Async:     false,
@@ -197,8 +200,6 @@ func StartRetryProducer(ctx context.Context) error {
 						return
 					}
 
-					baseMessage.Attempts += 1
-
 					bts, err := json.Marshal(baseMessage)
 					if err != nil {
 						log.Println("failed to marshal: ", err)
@@ -206,14 +207,14 @@ func StartRetryProducer(ctx context.Context) error {
 					}
 
 					kafkaMessage := kafka.Message{
-						Headers: []kafka.Header{{
-							Key: "audience", Value: []byte(strings.Join(r.Audience, ",")),
-						}},
+						Headers: []kafka.Header{
+							{Key: "audience", Value: []byte(strings.Join(r.Audience, ","))},
+							{Key: "attempts", Value: []byte{byte(r.Attempts)}}},
 						Value: bts,
 					}
 					err = writer.WriteMessages(ctx, kafkaMessage)
 					if err != nil {
-						log.Println("writing messages: %w", err)
+						log.Printf("writing messages: %v", err)
 						return
 					}
 
@@ -229,7 +230,7 @@ func StartRetryProducer(ctx context.Context) error {
         `
 				res, err := db.ExecContext(ctx, fmt.Sprintf(deliveredQuery, strings.Join(retryIDs, ",")), time.Now().Unix())
 				if err != nil {
-					log.Printf("writing to the database: %w", err)
+					log.Printf("writing to the database: %v", err)
 				}
 
 				if affected, err := res.RowsAffected(); err != nil || int(affected) != len(retryIDs) {

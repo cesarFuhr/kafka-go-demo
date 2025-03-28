@@ -1,19 +1,28 @@
 flowchart TD
 %% Nodes
     topic1("/topic1")@{shape: lean-l}
+    retriesTopic1("/retries_topic1")@{shape: lean-l}
     consumer1("Consumer Group 1")
     topic2("/topic2")@{shape: lean-l}
-    consumer2("Consumer Group 2")
+    retriesTopic2("/retries_topic2")@{shape: lean-l}
+    consumer2_1("Consumer Group 2_1")
+    consumer2_2("Consumer Group 2_2")
     retryTopic("/retryTopic")@{shape: lean-l}
     retryConsumerGroup("Retry Consumer Group")
     retriesDatabase(Retries DB)@{shape: database}
     cron(Every X amount of seconds)@{shape: delay}
     retryProducer("Retry Producer")
+    deadletterNote["For dead lettering we will use the database records not marked as delivered, we can expose an API to redrive messages with a fresh attempts count."]
 
 %% Edge connections between nodes
-    topic1 --> consumer1 -->|failed| retryTopic
-    topic2 --> consumer2 -->|failed| retryTopic
+    topic1 --> consumer1 -->|if failed| retryTopic
+    topic2 --> consumer2_1 -->|if failed| retryTopic
+    topic2 --> consumer2_2 -->|if failed| retryTopic
     retryTopic --> retryConsumerGroup --> retriesDatabase
     cron -..-> retryProducer --> retriesDatabase
-    retryProducer --> |attempts+1|topic1
-    retryProducer --> |attempts+1|topic2
+    retryProducer --> |attempts+1|retriesTopic1
+    retryProducer --> |attempts+1|retriesTopic2
+    retriesTopic1 --> consumer1
+    retriesTopic2 -->|audience checks| consumer2_1
+    retriesTopic2 -->|audience checks| consumer2_2
+    retriesDatabase -.-> deadletterNote
